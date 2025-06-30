@@ -1,8 +1,11 @@
 import os
+import io
 from flask import Flask, request, render_template, send_from_directory, flash, redirect, url_for
 from werkzeug.utils import secure_filename
 from PIL import Image
 import numpy as np
+import base64
+import mimetypes
 
 # Konfigurasi aplikasi Flask
 UPLOAD_FOLDER = 'static/uploads'
@@ -150,15 +153,22 @@ def index():
                 flash('Tidak ada file yang dipilih.')
                 return redirect(request.url)
             if file and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
-                original_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(original_path)
-                encoded_image = encode_rotation_revised(original_path, message)
+                file_content = file.read()
+                encoded_image = encode_rotation_revised(file.stream, message)
                 if encoded_image:
-                    encoded_filename = "encoded_rot_" + os.path.splitext(filename)[0] + ".png"
-                    encoded_path = os.path.join(app.config['UPLOAD_FOLDER'], encoded_filename)
-                    encoded_image.save(encoded_path, 'PNG')
-                    return render_template('result.html', original_image=filename, encoded_image=encoded_filename)
+
+                    img_io = io.BytesIO()
+                    encoded_image.save(img_io, 'PNG')
+                    img_io.seek(0)
+                    
+                    # Konversi ke base64 untuk dikirim ke frontend
+                    original_base64 = base64.b64encode(file_content).decode()
+                    encoded_base64 = base64.b64encode(img_io.getvalue()).decode()
+
+                    mime_type = mimetypes.guess_type(file.filename)[0] or 'image/png'
+                    original_image = f"data:{mime_type};base64,{original_base64}"
+                    encoded_image = f"data:{mime_type};base64,{encoded_base64}"
+                    return render_template('result.html', original_image=original_image, encoded_image=encoded_image)
                 return redirect(request.url)
             else:
                 flash('File tidak valid! Harap gunakan format .png')
@@ -175,13 +185,7 @@ def index():
                 flash('Pilih kedua gambar untuk decode.')
                 return redirect(request.url)
             if allowed_file(original_file.filename) and allowed_file(stego_file.filename):
-                original_filename = "dec_orig_" + secure_filename(original_file.filename)
-                stego_filename = "dec_stego_" + secure_filename(stego_file.filename)
-                original_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
-                stego_path = os.path.join(app.config['UPLOAD_FOLDER'], stego_filename)
-                original_file.save(original_path)
-                stego_file.save(stego_path)
-                decoded_message = decode_rotation_revised(original_path, stego_path)
+                decoded_message = decode_rotation_revised(original_file.stream, stego_file.stream)
                 return render_template('result.html', decoded_message=decoded_message)
             else:
                 flash('File tidak valid! Harap gunakan format .png untuk kedua file.')
